@@ -31,11 +31,13 @@ interface StreamComponentState {
     inputEnabled: boolean;
     isStreamStarting: boolean;
     perfStats: any;
+    micEnabled: boolean;
 }
 
 class StreamComponent extends React.Component<StreamComponentProps, StreamComponentState> {
     gameliftstreams?: gameliftstreamssdk.GameLiftStreams;
     private statsOverlayRef = React.createRef<StatsOverlayRef>();
+    private micStatsInterval?: ReturnType<typeof setInterval>;
 
     constructor(props: StreamComponentProps) {
         super(props);
@@ -49,7 +51,8 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
             regions: ['us-west-2'], // Must be supported Amazon GameLift Streams primary region (https://docs.aws.amazon.com/gameliftstreams/latest/developerguide/regions-quotas-rande.html)
             inputEnabled: false,
             isStreamStarting: false,
-            perfStats: {}
+            perfStats: {},
+            micEnabled: false
         };
 
         // Adding Stats to frontend
@@ -138,6 +141,17 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
      */
     private async createStreamSession() {
         this.setState({ isStreamStarting: true });
+        if (this.state.micEnabled) {
+            try {
+                await this.gameliftstreams!.enableMicrophone();
+                console.log('[Mic] Microphone enabled successfully');
+            } catch (e) {
+                console.error('[Mic] Failed to enable microphone:', e);
+                alert('Failed to enable microphone. Please check browser permissions.');
+                this.setState({ isStreamStarting: false });
+                return;
+            }
+        }
         const signalRequest = await this.gameliftstreams?.generateSignalRequest();
         const payload = {
             AppIdentifier: this.state.appId,
@@ -171,6 +185,17 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
      */
     private async createStreamSessionConnection() {
         this.setState({ isStreamStarting: true });
+        if (this.state.micEnabled) {
+            try {
+                await this.gameliftstreams!.enableMicrophone();
+                console.log('[Mic] Microphone enabled successfully');
+            } catch (e) {
+                console.error('[Mic] Failed to enable microphone:', e);
+                alert('Failed to enable microphone. Please check browser permissions.');
+                this.setState({ isStreamStarting: false });
+                return;
+            }
+        }
         const signalRequest = await this.gameliftstreams?.generateSignalRequest();
         const payload = {
             SessionIdentifier: this.state.sessionId,
@@ -250,12 +275,31 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
             status: StreamState.RUNNING,
             isStreamStarting: false,
         }));
+
+        if (this.state.micEnabled) {
+            this.micStatsInterval = setInterval(async () => {
+                try {
+                    const stats = await this.gameliftstreams?.getMicrophoneRTCStats();
+                    stats?.forEach((report: any) => {
+                        if (report.type === 'outbound-rtp' && report.kind === 'audio') {
+                            console.log(`[Mic Stats] bytesSent=${report.bytesSent}, packetsSent=${report.packetsSent}`);
+                        }
+                    });
+                } catch (e) {
+                    console.error('[Mic Stats] Error:', e);
+                }
+            }, 3000);
+        }
     }
 
     /**
      * Closes the connection and creates a new Amazon GameLift Streams Object as it can't be reused.
      */
     private closeConnection() {
+        if (this.micStatsInterval) {
+            clearInterval(this.micStatsInterval);
+            this.micStatsInterval = undefined;
+        }
         this.setState({status: StreamState.STOPPED, inputEnabled: false});
         this.gameliftstreams?.close();
         this.resetGameLiftStreamsSDK();
@@ -329,7 +373,16 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
                             <option value="us-west-2">us-west-2 (Oregon)</option>
                         </select>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input
+                                type="checkbox"
+                                checked={this.state.micEnabled}
+                                onChange={(e) => this.setState({ micEnabled: e.target.checked })}
+                                disabled={this.state.status === StreamState.RUNNING}
+                            />
+                            🎤 Mic
+                        </label>
                         <button
                             onClick={this.state.status !== StreamState.RUNNING ? this.createStreamSession : this.closeConnection}>
                             {this.state.status !== StreamState.RUNNING ? 'Start Stream' : 'End Stream'}
