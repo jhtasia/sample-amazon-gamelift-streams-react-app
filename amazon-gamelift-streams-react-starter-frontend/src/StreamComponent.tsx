@@ -44,8 +44,8 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
 
         this.state = {
             status: StreamState.STOPPED,
-            sgId: '',
-            appId: '',
+            sgId: 'sg-L8nff73L7',
+            appId: 'a-sTBFxhp35',
             sessionId: '',
             lastSessionId: '',
             regions: ['us-west-2'], // Must be supported Amazon GameLift Streams primary region (https://docs.aws.amazon.com/gameliftstreams/latest/developerguide/regions-quotas-rande.html)
@@ -358,10 +358,10 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
                     flexWrap: 'wrap'
                 }}>
                     <div>
-                        Stream Group ID: <input type="text" name="sgId" onChange={this.handleInputChange}></input>
+                        Stream Group ID: <input type="text" name="sgId" onChange={this.handleInputChange} value={this.state.sgId}></input>
                     </div>
                     <div>
-                        Application ID: <input type="text" name="appId" onChange={this.handleInputChange}></input>
+                        Application ID: <input type="text" name="appId" onChange={this.handleInputChange} value={this.state.appId}></input>
                     </div>
                     <div>
                         Region: <select onChange={this.handleRegionChange} value={this.state.regions[0]}>

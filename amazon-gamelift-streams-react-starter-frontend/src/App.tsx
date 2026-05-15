@@ -7,9 +7,9 @@ Amplify.configure({
     Auth: {
         Cognito: {
             // example: 'us-west-2_CmhpQV4GR'
-            userPoolId: '<CHANGE-ME>',
+            userPoolId: 'ap-northeast-1_rO1hSldKS',
             // example: '5b9h9bmmmva3ig1trmq5n90orm'
-            userPoolClientId: '<CHANGE-ME>'
+            userPoolClientId: '3qqkf7grgb21dqki9c4hnrp5ul'
         }
     },
     API: {
@@ -17,7 +17,7 @@ Amplify.configure({
             'demo-api': {
                 // example: 'https://2ki03xizx7.execute-api.us-west-2.amazonaws.com/prod'
                 // ensure the endpoint has no trailing slash '/' at the end
-                endpoint: '<CHANGE-ME>'
+                endpoint: 'https://cjhwuepln2.execute-api.ap-northeast-1.amazonaws.com/prod'
             }
         }
     }
