@@ -3,7 +3,7 @@
 
 import React from 'react';
 import './StreamComponent.css';
-import * as gameliftstreamssdk from './gamelift-streams-websdk/gameliftstreams-1.1.0';
+import * as gameliftstreamssdk from './gamelift-streams-websdk/gameliftstreams-1.2.0';
 import { ApiError, get, post } from 'aws-amplify/api';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import NavBar from './NavBar';
