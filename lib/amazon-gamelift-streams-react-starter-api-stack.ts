@@ -9,47 +9,16 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as log from 'aws-cdk-lib/aws-logs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 
 export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
 
-        // create a Cognito user pool and Userpool Client for the frontend AuthN
-        const userPool = new cognito.UserPool(this, 'gamelift-streams-react-starter-user-pool', {
-            userPoolName: this.stackName + '-user-pool',
-            selfSignUpEnabled: false,
-            signInAliases: {
-                email: true
-            },
-            autoVerify: {
-                email: true,
-            },
-            removalPolicy: cdk.RemovalPolicy.DESTROY,
-            passwordPolicy: {
-                minLength: 8,
-                requireDigits: true,
-                requireLowercase: true,
-                requireSymbols: true,
-                requireUppercase: true
-            },
-            featurePlan: cognito.FeaturePlan.PLUS,
-            accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
-        });
-
-        const userPoolClient = new cognito.UserPoolClient(this, 'gamelift-streams-react-starter-user-pool-client', {
-            userPool: userPool,
-            authFlows: { userPassword: true, userSrp: true },
-            refreshTokenValidity: cdk.Duration.hours(8),
-            idTokenValidity: cdk.Duration.minutes(5),
-            accessTokenValidity: cdk.Duration.minutes(5)
-        });
-
-        new cdk.CfnOutput(this, 'gamelift-streams-react-starter-User-Pool-Id', {
-            value: userPool.userPoolId
-        });
-        new cdk.CfnOutput(this, 'gamelift-streams-react-starter-User-Pool-Client-Id', {
-            value: userPoolClient.userPoolClientId
-        });
+        // Use existing Passwordless Cognito User Pool from jht-office-portal (us-east-1)
+        const userPool = cognito.UserPool.fromUserPoolId(
+            this, 'PasswordlessUserPool', 'us-east-1_An6wcJWTe'
+        );
 
         // create RestAPI for the frontend to start and get stream sessions
         // create a Cognito Authorizer for our API
@@ -82,6 +51,13 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             logGroupName: this.stackName + '/lambda',
             retention: log.RetentionDays.TEN_YEARS,
             removalPolicy: cdk.RemovalPolicy.DESTROY
+        });
+
+        // DynamoDB table for game list
+        const gamesTable = new dynamodb.Table(this, 'gamelift-streams-games-table', {
+            partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
         const startStreamLambda = new lambda.Function(this, 'gamelift-streams-start-stream-lambda', {
@@ -153,6 +129,26 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             authorizationType: apigateway.AuthorizationType.COGNITO
         });
 
+        const games = api.root.addResource('games');
+
+        const listGamesLambda = new lambda.Function(this, 'gamelift-streams-list-games-lambda', {
+            runtime: lambda.Runtime.NODEJS_24_X,
+            handler: 'ListGames.handler',
+            code: lambda.Code.fromAsset('lambda/ListGames'),
+            timeout: cdk.Duration.seconds(10),
+            environment: {
+                'GAMES_TABLE_NAME': gamesTable.tableName,
+            },
+            logGroup: lambdaLogGroup
+        });
+
+        gamesTable.grantReadData(listGamesLambda);
+
+        games.addMethod('GET', new apigateway.LambdaIntegration(listGamesLambda), {
+            authorizer: auth,
+            authorizationType: apigateway.AuthorizationType.COGNITO
+        });
+
         // outputs
         const endpointUrl = api.urlForPath('/');
         new cdk.CfnOutput(this, 'Endpoint', {
@@ -163,17 +159,6 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         /**
         * Nag Suppressions
         */
-        NagSuppressions.addResourceSuppressions(userPool, [
-            {
-                id: "AwsSolutions-COG2",
-                reason: "MFA not required for this sample. Recommendation to add MFA in best practice docs."
-            },
-            {
-                id: "AwsSolutions-COG3",
-                reason: "Advanced security features are not required for this sample application. In production, it is recommended to enable advanced security features."
-            }
-        ], true);
-
         NagSuppressions.addResourceSuppressions(api, [
             {
                 id: 'AwsSolutions-APIG4',
@@ -221,6 +206,25 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             {
                 id: "AwsSolutions-IAM5",
                 reason: "getStreamLambda uses IAM RolePolicy that contains wildcard, but hardened to account level least priviledge."
+            },
+            {
+                id: 'AwsSolutions-IAM4',
+                reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application. In production, consider using custom IAM policies.',
+                appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
+            }
+        ], true);
+
+        NagSuppressions.addResourceSuppressions(gamesTable, [
+            {
+                id: 'AwsSolutions-DDB3',
+                reason: 'Point-in-time recovery is not required for this sample application. In production, enable PITR for data protection.'
+            }
+        ], true);
+
+        NagSuppressions.addResourceSuppressions(listGamesLambda, [
+            {
+                id: "AwsSolutions-IAM5",
+                reason: "listGamesLambda uses IAM RolePolicy that contains wildcard for DynamoDB, but scoped to specific table."
             },
             {
                 id: 'AwsSolutions-IAM4',
