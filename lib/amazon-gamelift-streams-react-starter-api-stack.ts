@@ -275,5 +275,19 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
             }
         ], true);
+        NagSuppressions.addResourceSuppressions(telemetryLambda, [
+            {
+                id: 'AwsSolutions-IAM4',
+                reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application. In production, consider using custom IAM policies.',
+                appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
+            }
+        ], true);
+
+        NagSuppressions.addResourceSuppressions(telemetryTable, [
+            {
+                id: 'AwsSolutions-DDB3',
+                reason: 'Point-in-time recovery is not required for this sample application. In production, enable PITR for data protection.'
+            }
+        ], true);
     }
 }
