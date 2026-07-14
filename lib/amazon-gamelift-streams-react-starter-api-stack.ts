@@ -60,6 +60,31 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
+        // 1. Create the DynamoDB Table
+        const telemetryTable = new dynamodb.Table(this, 'DataVisTelemetryTable', {
+        // The partition key must match the 'id' field we used in the JavaScript code
+        partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
+        billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // Cost-effective serverless billing
+        removalPolicy: cdk.RemovalPolicy.DESTROY, // Safe for dev: deletes table if stack is destroyed
+        });
+
+        // 2. Create the Lambda Function
+        const telemetryLambda = new lambda.Function(this, 'dataviz-get-data-lambda', {
+          runtime: lambda.Runtime.NODEJS_24_X,
+        
+          // This tells CDK to look for a folder named "lambda" in the root of the project
+          code: lambda.Code.fromAsset('lambda/SaveData'), 
+        
+          // "index.handler" means: look for a file named "index" and call the exported "handler" function
+          handler: 'SaveData.handler', 
+        
+          // Pass the dynamically generated table name into the Lambda's process.env
+          environment: {
+            TABLE_NAME: telemetryTable.tableName,
+          },
+        });
+        telemetryTable.grantReadWriteData(telemetryLambda);
+
         const startStreamLambda = new lambda.Function(this, 'gamelift-streams-start-stream-lambda', {
             runtime: lambda.Runtime.NODEJS_24_X,
             handler: 'StartStream.handler',
@@ -84,6 +109,12 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             authorizer: auth,
             authorizationType: apigateway.AuthorizationType.COGNITO
         });
+        // 4. Create the new '/telemetry' URL path on the existing API
+        const telemetryResource = api.root.addResource('items');
+
+        // 5. Tell the API Gateway to trigger your Lambda function whenever someone hits that URL
+        // Using 'ANY' allows it to handle both GET (fetching data) and POST/PUT (saving data)
+        telemetryResource.addMethod('ANY', new apigateway.LambdaIntegration(telemetryLambda));
 
         const session = api.root.addResource('session');
         const sgParam = session.addResource('{sg}');
