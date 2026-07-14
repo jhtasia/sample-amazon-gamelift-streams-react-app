@@ -10,6 +10,7 @@ import * as log from 'aws-cdk-lib/aws-logs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as amplify from 'aws-cdk-lib/aws-amplify';
 
 export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -62,26 +63,26 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
 
         // 1. Create the DynamoDB Table
         const telemetryTable = new dynamodb.Table(this, 'DataVisTelemetryTable', {
-        // The partition key must match the 'id' field we used in the JavaScript code
-        partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
-        billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // Cost-effective serverless billing
-        removalPolicy: cdk.RemovalPolicy.DESTROY, // Safe for dev: deletes table if stack is destroyed
+            // The partition key must match the 'id' field we used in the JavaScript code
+            partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // Cost-effective serverless billing
+            removalPolicy: cdk.RemovalPolicy.DESTROY, // Safe for dev: deletes table if stack is destroyed
         });
 
         // 2. Create the Lambda Function
         const telemetryLambda = new lambda.Function(this, 'dataviz-get-data-lambda', {
-          runtime: lambda.Runtime.NODEJS_24_X,
-        
-          // This tells CDK to look for a folder named "lambda" in the root of the project
-          code: lambda.Code.fromAsset('lambda/SaveData'), 
-        
-          // "index.handler" means: look for a file named "index" and call the exported "handler" function
-          handler: 'SaveData.handler', 
-        
-          // Pass the dynamically generated table name into the Lambda's process.env
-          environment: {
-            TABLE_NAME: telemetryTable.tableName,
-          },
+            runtime: lambda.Runtime.NODEJS_24_X,
+
+            // This tells CDK to look for a folder named "lambda" in the root of the project
+            code: lambda.Code.fromAsset('lambda/SaveData'),
+
+            // "index.handler" means: look for a file named "index" and call the exported "handler" function
+            handler: 'SaveData.handler',
+
+            // Pass the dynamically generated table name into the Lambda's process.env
+            environment: {
+                TABLE_NAME: telemetryTable.tableName,
+            },
         });
         telemetryTable.grantReadWriteData(telemetryLambda);
 
@@ -108,6 +109,40 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         }), {
             authorizer: auth,
             authorizationType: apigateway.AuthorizationType.COGNITO
+        });
+        // ==========================================
+        // DATA VISUALIZATION FRONTEND (AWS AMPLIFY)
+        // ==========================================
+
+        // 1. Define the core Amplify Application shell
+        const dataVisApp = new amplify.CfnApp(this, 'IsolatedDataVisFrontend', {
+            name: 'DataVisDashboard',
+            // Update this with the exact GitHub repository link for your React graphs
+            repository: 'https://github.com/jhtasia/amplify_unity_dataviz',
+
+            // Context variable fallback in case the account lacks a global GitHub link
+            accessToken: this.node.tryGetContext('githubToken') || undefined,
+
+            // Automatically injects the live API URL into your React build environment variables
+            environmentVariables: [
+                {
+                    name: 'REACT_APP_API_URL',
+                    value: api.urlForPath('/items'), // Connects your frontend charts directly to this API!
+                }
+            ]
+        });
+
+        // 2. Define the deployment branch (tracking 'main')
+        const mainBranch = new amplify.CfnBranch(this, 'DataVisMainBranch', {
+            appId: dataVisApp.attrAppId,
+            branchName: 'main',
+            enableAutoBuild: true, // Tells Amplify to auto-deploy every time you push a git commit
+        });
+
+        // 3. Output the live URL to your terminal once deployment finishes
+        new cdk.CfnOutput(this, 'DataVisDashboardUrl', {
+            value: `https://main.${dataVisApp.attrDefaultDomain}`,
+            description: 'The live public link to your data visualization frontend dashboard',
         });
         // 4. Create the new '/telemetry' URL path on the existing API
         const telemetryResource = api.root.addResource('items');
@@ -220,7 +255,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 reason: 'CloudWatch logging is not required for this sample application. In production, enable CloudWatch logging for all methods.'
             }
         ], true);
-  
+
         NagSuppressions.addResourceSuppressions(startStreamLambda, [
             {
                 id: "AwsSolutions-IAM5",
