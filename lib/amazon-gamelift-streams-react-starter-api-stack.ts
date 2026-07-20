@@ -68,23 +68,37 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // Cost-effective serverless billing
             removalPolicy: cdk.RemovalPolicy.DESTROY, // Safe for dev: deletes table if stack is destroyed
         });
+        // Add this GSI to enable querying by user
+        telemetryTable.addGlobalSecondaryIndex({
+            indexName: 'userId-index',
+            partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+        });
 
         // 2. Create the Lambda Function
-        const telemetryLambda = new lambda.Function(this, 'dataviz-get-data-lambda', {
+        // Protected Lambda (POST new item, GET all items for user)
+        const protectedTelemetryLambda = new lambda.Function(this, 'protected-telemetry-lambda', {
             runtime: lambda.Runtime.NODEJS_24_X,
+            code: lambda.Code.fromAsset('lambda/ProtectedData'), // Update this path to your new handler
+            handler: 'ProtectedData.handler',
+            environment: {
+                TABLE_NAME: telemetryTable.tableName,
+                INDEX_NAME: 'userId-index', // Pass the GSI name for querying
+            },
+            logGroup: lambdaLogGroup,
+        });
+        telemetryTable.grantReadWriteData(protectedTelemetryLambda);
 
-            // This tells CDK to look for a folder named "lambda" in the root of the project
-            code: lambda.Code.fromAsset('lambda/SaveData'),
-
-            // "index.handler" means: look for a file named "index" and call the exported "handler" function
-            handler: 'SaveData.handler',
-
-            // Pass the dynamically generated table name into the Lambda's process.env
+        // Public Lambda (GET item by ID only)
+        const publicTelemetryLambda = new lambda.Function(this, 'public-telemetry-lambda', {
+            runtime: lambda.Runtime.NODEJS_24_X,
+            code: lambda.Code.fromAsset('lambda/PublicData'), // Update this path to your new handler
+            handler: 'PublicData.handler',
             environment: {
                 TABLE_NAME: telemetryTable.tableName,
             },
+            logGroup: lambdaLogGroup,
         });
-        telemetryTable.grantReadWriteData(telemetryLambda);
+        telemetryTable.grantReadData(publicTelemetryLambda); // Only requires Read permissions
 
         const startStreamLambda = new lambda.Function(this, 'gamelift-streams-start-stream-lambda', {
             runtime: lambda.Runtime.NODEJS_24_X,
@@ -144,12 +158,23 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             value: `https://main.${dataVisApp.attrDefaultDomain}`,
             description: 'The live public link to your data visualization frontend dashboard',
         });
-        // 4. Create the new '/telemetry' URL path on the existing API
         const telemetryResource = api.root.addResource('items');
-
-        // 5. Tell the API Gateway to trigger your Lambda function whenever someone hits that URL
-        // Using 'ANY' allows it to handle both GET (fetching data) and POST/PUT (saving data)
-        telemetryResource.addMethod('ANY', new apigateway.LambdaIntegration(telemetryLambda));
+            
+        // 1. Protected POST /items
+        telemetryResource.addMethod('POST', new apigateway.LambdaIntegration(protectedTelemetryLambda), {
+            authorizer: auth,
+            authorizationType: apigateway.AuthorizationType.COGNITO
+        });
+        
+        // 2. Protected GET /items (fetches all for the authenticated user)
+        telemetryResource.addMethod('GET', new apigateway.LambdaIntegration(protectedTelemetryLambda), {
+            authorizer: auth,
+            authorizationType: apigateway.AuthorizationType.COGNITO
+        });
+        
+        // 3. Public GET /items/{id}
+        const telemetryIdResource = telemetryResource.addResource('{id}');
+        telemetryIdResource.addMethod('GET', new apigateway.LambdaIntegration(publicTelemetryLambda)); // No authorizer attached
 
         const session = api.root.addResource('session');
         const sgParam = session.addResource('{sg}');
@@ -310,7 +335,14 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
             }
         ], true);
-        NagSuppressions.addResourceSuppressions(telemetryLambda, [
+        NagSuppressions.addResourceSuppressions(publicTelemetryLambda, [
+            {
+                id: 'AwsSolutions-IAM4',
+                reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application. In production, consider using custom IAM policies.',
+                appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
+            }
+        ], true);
+        NagSuppressions.addResourceSuppressions(protectedTelemetryLambda, [
             {
                 id: 'AwsSolutions-IAM4',
                 reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application. In production, consider using custom IAM policies.',
