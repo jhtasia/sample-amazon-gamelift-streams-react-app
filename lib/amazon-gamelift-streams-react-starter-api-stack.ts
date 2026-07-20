@@ -337,12 +337,20 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         ], true);
         NagSuppressions.addResourceSuppressions(publicTelemetryLambda, [
             {
+                id: "AwsSolutions-IAM5",
+                reason: "createStreamSessionConnection uses IAM RolePolicy that contains wildcard, but hardened to account level least priviledge."
+            },
+            {
                 id: 'AwsSolutions-IAM4',
                 reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application. In production, consider using custom IAM policies.',
                 appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
             }
         ], true);
         NagSuppressions.addResourceSuppressions(protectedTelemetryLambda, [
+            {
+                id: "AwsSolutions-IAM5",
+                reason: "createStreamSessionConnection uses IAM RolePolicy that contains wildcard, but hardened to account level least priviledge."
+            },
             {
                 id: 'AwsSolutions-IAM4',
                 reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application. In production, consider using custom IAM policies.',
