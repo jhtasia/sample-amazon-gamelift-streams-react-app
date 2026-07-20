@@ -26,6 +26,10 @@ async function execute() {
     await runCommand('npm install', getStreamPath);
     const createStreamSessionConnectionPath = path.join(rootdir, 'lambda/CreateStreamSessionConnection');
     await runCommand('npm install', createStreamSessionConnectionPath);
+    const listGamesPath = path.join(rootdir, 'lambda/ListGames');
+    await runCommand('npm install', listGamesPath);
+    const saveData = path.join(rootdir, 'lambda/SaveData');
+    await runCommand('npm install', saveData);
 }
 
 execute();
