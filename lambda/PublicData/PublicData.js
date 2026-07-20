@@ -23,7 +23,7 @@ exports.handler = async (event, context) => {
     }
 
     const method = event.requestContext?.http?.method || event.httpMethod;
-
+    console.info("EVENT\n" + JSON.stringify(event, null, 2));
     if (method === 'GET') {
         try {
             // Because the route is /items/{id}, we pull from pathParameters, not queryStringParameters

@@ -25,11 +25,10 @@ exports.handler = async (event, context) => {
 
     // Extract the User ID from the Cognito token claims securely passed by API Gateway
     const userId = event.requestContext?.authorizer?.claims?.sub;
-    
+    console.info("EVENT\n" + JSON.stringify(event, null, 2));
     if (!userId) {
         return buildResponse(401, { error: "Unauthorized. Missing user identity." });
     }
-
     const method = event.requestContext?.http?.method || event.httpMethod;
 
     // ==========================================
