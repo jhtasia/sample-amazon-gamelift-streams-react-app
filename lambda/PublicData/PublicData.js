@@ -48,6 +48,8 @@ exports.handler = async (event, context) => {
                 
                 // Optional: Strip the userId out before returning if you don't want to expose it publicly
                 delete response.Item.userId;
+                delete response.Item.Metadata;
+                delete response.Item.userEmail;
                 
                 return buildResponse(200, response.Item);
             } else {
