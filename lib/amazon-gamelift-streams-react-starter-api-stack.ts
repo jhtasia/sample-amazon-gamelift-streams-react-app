@@ -106,7 +106,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
 
         // 1. AgentReporter Lambda (GET /report)
         const agentReporterLambda = new lambda.Function(this, 'agent-reporter-lambda', {
-            runtime: lambda.Runtime.NODEJS_20_X,
+            runtime: lambda.Runtime.NODEJS_24_X,
             handler: 'reporter.handler',
             code: lambda.Code.fromAsset('lambda/AgentReporter'),
             timeout: cdk.Duration.seconds(15),
@@ -120,7 +120,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
 
         // 2. AgentInvoker Lambda (POST /coach with Response Streaming)
         const agentInvokerLambda = new lambda.Function(this, 'agent-invoker-lambda', {
-            runtime: lambda.Runtime.NODEJS_20_X,
+            runtime: lambda.Runtime.NODEJS_24_X,
             handler: 'coach.handler',
             code: lambda.Code.fromAsset('lambda/AgentInvoker'),
             timeout: cdk.Duration.seconds(600),
@@ -159,7 +159,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         // ==========================================
         // DATA VISUALIZATION FRONTEND (AWS AMPLIFY)
         // ==========================================
-    const reportResource = api.root.addResource('report');
+        const reportResource = api.root.addResource('report');
         reportResource.addMethod('GET', new apigateway.LambdaIntegration(agentReporterLambda, {
             proxy: true
         }), {
@@ -173,11 +173,6 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         const streamingIntegration = new apigateway.LambdaIntegration(agentInvokerLambda, {
             proxy: true,
             responseTransferMode: apigateway.ResponseTransferMode.STREAM,
-        });
-
-        coachResource.addMethod('POST', streamingIntegration, {
-            authorizer: auth,
-            authorizationType: apigateway.AuthorizationType.COGNITO
         });
 
         coachResource.addMethod('POST', streamingIntegration, {
@@ -420,15 +415,21 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 reason: 'Point-in-time recovery is not required for this sample application. In production, enable PITR for data protection.'
             }
         ], true);
-        // ==========================================
-        // NAG SUPPRESSIONS FOR AGENT LAMBDAS
-        // ==========================================
-
         NagSuppressions.addResourceSuppressions(agentReporterLambda, [
             {
                 id: 'AwsSolutions-IAM4',
                 reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application.',
                 appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
+            },
+            {
+                id: 'AwsSolutions-IAM5',
+                reason: 'CDK grantRead auto-generates wildcards for S3 bucket actions and objects.',
+                appliesTo: [
+                    'Action::s3:GetBucket*',
+                    'Action::s3:GetObject*',
+                    'Action::s3:List*',
+                    'Resource::arn:aws:s3:::custom-memories-ai-coach-unity/*'
+                ]
             }
         ], true);
 
@@ -437,6 +438,18 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 id: 'AwsSolutions-IAM4',
                 reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application.',
                 appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
+            },
+            {
+                id: 'AwsSolutions-IAM5',
+                reason: 'CDK grantReadWrite auto-generates wildcards for S3 bucket actions and objects.',
+                appliesTo: [
+                    'Action::s3:GetBucket*',
+                    'Action::s3:GetObject*',
+                    'Action::s3:List*',
+                    'Action::s3:Abort*',
+                    'Action::s3:DeleteObject*',
+                    'Resource::arn:aws:s3:::custom-memories-ai-coach-unity/*'
+                ]
             }
         ], true);
     }
