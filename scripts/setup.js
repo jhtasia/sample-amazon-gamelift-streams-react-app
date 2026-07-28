@@ -32,6 +32,8 @@ async function execute() {
     await runCommand('npm install', publicDataPath);
     const protectedDataPath = path.join(rootdir, 'lambda/ProtectedData');
     await runCommand('npm install', protectedDataPath);
+    const invokerPath = path.join(rootdir, 'lambda/AgentInvoker');
+    await runCommand('npm install', invokerPath);
 }
 
 execute();
