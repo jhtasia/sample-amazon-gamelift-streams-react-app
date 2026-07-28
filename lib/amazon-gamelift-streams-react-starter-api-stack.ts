@@ -11,6 +11,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as amplify from 'aws-cdk-lib/aws-amplify';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 
 export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -99,6 +100,37 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             logGroup: lambdaLogGroup,
         });
         telemetryTable.grantReadData(publicTelemetryLambda); // Only requires Read permissions
+        const userStateBucket = s3.Bucket.fromBucketName(
+            this, 'UserStateBucket', 'custom-memories-ai-coach-unity'
+        );
+
+        // 1. AgentReporter Lambda (GET /report)
+        const agentReporterLambda = new lambda.Function(this, 'agent-reporter-lambda', {
+            runtime: lambda.Runtime.NODEJS_20_X,
+            handler: 'reporter.handler',
+            code: lambda.Code.fromAsset('lambda/AgentReporter'),
+            timeout: cdk.Duration.seconds(15),
+            environment: {
+                BUCKET_NAME: userStateBucket.bucketName,
+            },
+            logGroup: lambdaLogGroup,
+        });
+
+        userStateBucket.grantRead(agentReporterLambda);
+
+        // 2. AgentInvoker Lambda (POST /coach with Response Streaming)
+        const agentInvokerLambda = new lambda.Function(this, 'agent-invoker-lambda', {
+            runtime: lambda.Runtime.NODEJS_20_X,
+            handler: 'coach.handler',
+            code: lambda.Code.fromAsset('lambda/AgentInvoker'),
+            timeout: cdk.Duration.seconds(600),
+            environment: {
+                BUCKET_NAME: userStateBucket.bucketName,
+            },
+            logGroup: lambdaLogGroup,
+        });
+
+        userStateBucket.grantReadWrite(agentInvokerLambda);
 
         const startStreamLambda = new lambda.Function(this, 'gamelift-streams-start-stream-lambda', {
             runtime: lambda.Runtime.NODEJS_24_X,
@@ -127,7 +159,31 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         // ==========================================
         // DATA VISUALIZATION FRONTEND (AWS AMPLIFY)
         // ==========================================
+    const reportResource = api.root.addResource('report');
+        reportResource.addMethod('GET', new apigateway.LambdaIntegration(agentReporterLambda, {
+            proxy: true
+        }), {
+            authorizer: auth,
+            authorizationType: apigateway.AuthorizationType.COGNITO
+        });
 
+        // POST /coach Route (With Native Response Streaming)
+        const coachResource = api.root.addResource('coach');
+        
+        const streamingIntegration = new apigateway.LambdaIntegration(agentInvokerLambda, {
+            proxy: true,
+            responseTransferMode: apigateway.ResponseTransferMode.STREAM,
+        });
+
+        coachResource.addMethod('POST', streamingIntegration, {
+            authorizer: auth,
+            authorizationType: apigateway.AuthorizationType.COGNITO
+        });
+
+        coachResource.addMethod('POST', streamingIntegration, {
+            authorizer: auth,
+            authorizationType: apigateway.AuthorizationType.COGNITO
+        });
         // 1. Define the core Amplify Application shell
         const dataVisApp = new amplify.CfnApp(this, 'IsolatedDataVisFrontend', {
             name: 'DataVisDashboard',
@@ -362,6 +418,25 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             {
                 id: 'AwsSolutions-DDB3',
                 reason: 'Point-in-time recovery is not required for this sample application. In production, enable PITR for data protection.'
+            }
+        ], true);
+        // ==========================================
+        // NAG SUPPRESSIONS FOR AGENT LAMBDAS
+        // ==========================================
+
+        NagSuppressions.addResourceSuppressions(agentReporterLambda, [
+            {
+                id: 'AwsSolutions-IAM4',
+                reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application.',
+                appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
+            }
+        ], true);
+
+        NagSuppressions.addResourceSuppressions(agentInvokerLambda, [
+            {
+                id: 'AwsSolutions-IAM4',
+                reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application.',
+                appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
             }
         ], true);
     }
