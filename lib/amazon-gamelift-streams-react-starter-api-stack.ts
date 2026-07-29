@@ -454,27 +454,12 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             }
         ], true);
 
-        NagSuppressions.addResourceSuppressions(agentInvokerLambda, [
-            {
-                id: 'AwsSolutions-IAM4',
-                reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application.',
-                appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
-            },
-            {
-                id: 'AwsSolutions-IAM5',
-                reason: 'CDK grantReadWrite auto-generates wildcards for S3 bucket actions and objects.',
-                appliesTo: [
-                'bedrock-agentcore:InvokeHarness',
-                'bedrock-agentcore:CreateEvent',
-                'bedrock-agentcore:GetEvent',
-                'bedrock-agentcore:ListEvents',
-                'bedrock-agentcore:RetrieveMemoryRecords',
-                'bedrock-agentcore:CreateMemoryRecord',
-                'bedrock-agentcore:GetMemoryRecord',
-                'bedrock:*',
-                'Resources:[*]'
-                ]
-            }
+    NagSuppressions.addResourceSuppressions(agentInvokerLambda, [
+            { id: 'AwsSolutions-IAM5', reason: 'AgentCore wildcards are required for accessing Memory and Harness resources dynamically.' }
+        ], true);
+
+        NagSuppressions.addResourceSuppressions([memoryRole, harnessRole], [
+            { id: 'AwsSolutions-IAM5', reason: 'Wildcard scope is required for AgentCore execution roles to invoke Bedrock foundation models.' }
         ], true);
     }
 }
