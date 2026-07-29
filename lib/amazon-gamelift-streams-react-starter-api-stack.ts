@@ -150,7 +150,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         // 2. AgentInvoker Lambda (POST /coach with Response Streaming)
         const agentInvokerLambda = new lambda.Function(this, 'agent-invoker-lambda', {
             runtime: lambda.Runtime.NODEJS_24_X,
-            handler: 'coach.handler',
+            handler: 'AgentInvoker.handler',
             code: lambda.Code.fromAsset('lambda/AgentInvoker'),
             timeout: cdk.Duration.seconds(600),
             environment: {
