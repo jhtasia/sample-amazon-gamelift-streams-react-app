@@ -49,7 +49,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         });
         // 1. Memory Resource
         const memoryRole = new iam.Role(this, 'AgentCoreMemoryRole', {
-            assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
+            assumedBy: new iam.ServicePrincipal('bedrock-agentcore.amazonaws.com'),
         });
         memoryRole.addToPolicy(new iam.PolicyStatement({
             actions: ['bedrock:InvokeModel'],
@@ -70,7 +70,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
 
         // 2. Harness Resource
         const harnessRole = new iam.Role(this, 'AgentCoreHarnessRole', {
-            assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
+            assumedBy: new iam.ServicePrincipal('bedrock-agentcore.amazonaws.com'),
         });
         harnessRole.addToPolicy(new iam.PolicyStatement({
             actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
