@@ -12,7 +12,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as amplify from 'aws-cdk-lib/aws-amplify';
 import * as s3 from 'aws-cdk-lib/aws-s3';
-
+import * as bedrockagentcore from 'aws-cdk-lib/aws-bedrockagentcore'
 export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
@@ -45,6 +45,49 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 'Access-Control-Allow-Origin': '\'*\'',
                 'Access-Control-Allow-Headers': '\'*\'',
                 'Access-Control-Allow-Methods': '\'*\''
+            }
+        });
+// 1. Memory Resource
+        const memoryRole = new iam.Role(this, 'AgentCoreMemoryRole', {
+            assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
+        });
+        memoryRole.addToPolicy(new iam.PolicyStatement({
+            actions: ['bedrock:InvokeModel'],
+            resources: ['*'],
+        }));
+
+        const cfnMemory = new bedrockagentcore.CfnMemory(this, 'AiCoachAgentMemory', {
+            name: 'ai_coach_user_memory',
+            description: 'Long-term user preferences, fitness goals, and conversational state memory',
+            eventExpiryDuration: 30,
+            memoryExecutionRoleArn: memoryRole.roleArn,
+            memoryStrategies: [
+                { userPreferenceMemoryStrategy: { name: 'UserPreferenceStrategy' } },
+                { semanticMemoryStrategy: { name: 'SemanticStrategy' } },
+                { summaryMemoryStrategy: { name: 'SummaryStrategy' } }
+            ]
+        });
+
+        // 2. Harness Resource
+        const harnessRole = new iam.Role(this, 'AgentCoreHarnessRole', {
+            assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
+        });
+        harnessRole.addToPolicy(new iam.PolicyStatement({
+            actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+            resources: ['*'], 
+        }));
+
+        const cfnHarness = new bedrockagentcore.CfnHarness(this, 'AiCoachHarness', {
+            harnessName: 'AICoachAmplifyDataviz',
+            executionRoleArn: harnessRole.roleArn,
+            model: {
+                bedrockModelConfig: { modelId: 'google.gemma-3-4b-it' },
+            },
+            systemPrompt: [
+                { text: 'You are an elite personal fitness coach and health assistant. Your goal is to help users set realistic fitness targets, track their workouts, and offer personalized feedback based on their state history. Be motivating, concise, and professional.' }
+            ],
+            memory: {
+                agentCoreMemoryConfiguration: { arn: cfnMemory.attrMemoryArn }
             }
         });
 
@@ -100,23 +143,9 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             logGroup: lambdaLogGroup,
         });
         telemetryTable.grantReadData(publicTelemetryLambda); // Only requires Read permissions
-        const userStateBucket = s3.Bucket.fromBucketName(
-            this, 'UserStateBucket', 'custom-memories-ai-coach-unity'
-        );
 
-        // 1. AgentReporter Lambda (GET /report)
-        const agentReporterLambda = new lambda.Function(this, 'agent-reporter-lambda', {
-            runtime: lambda.Runtime.NODEJS_24_X,
-            handler: 'reporter.handler',
-            code: lambda.Code.fromAsset('lambda/AgentReporter'),
-            timeout: cdk.Duration.seconds(15),
-            environment: {
-                BUCKET_NAME: userStateBucket.bucketName,
-            },
-            logGroup: lambdaLogGroup,
-        });
 
-        userStateBucket.grantRead(agentReporterLambda);
+
 
         // 2. AgentInvoker Lambda (POST /coach with Response Streaming)
         const agentInvokerLambda = new lambda.Function(this, 'agent-invoker-lambda', {
@@ -125,12 +154,28 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             code: lambda.Code.fromAsset('lambda/AgentInvoker'),
             timeout: cdk.Duration.seconds(600),
             environment: {
-                BUCKET_NAME: userStateBucket.bucketName,
+                AGENT_MEMORY_ID: cfnMemory.attrMemoryId,
+                AGENT_HARNESS_ARN: cfnHarness.attrArn, 
             },
             logGroup: lambdaLogGroup,
         });
+        const agentCorePolicy = new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: [
+                'bedrock-agentcore:InvokeHarness',
+                'bedrock-agentcore:CreateEvent',
+                'bedrock-agentcore:GetEvent',
+                'bedrock-agentcore:ListEvents',
+                'bedrock-agentcore:RetrieveMemoryRecords',
+                'bedrock-agentcore:CreateMemoryRecord',
+                'bedrock-agentcore:GetMemoryRecord',
+                'bedrock:*' 
+            ],
+            resources: ['*'], 
+        });
 
-        userStateBucket.grantReadWrite(agentInvokerLambda);
+        agentInvokerLambda.addToRolePolicy(agentCorePolicy);
+
 
         const startStreamLambda = new lambda.Function(this, 'gamelift-streams-start-stream-lambda', {
             runtime: lambda.Runtime.NODEJS_24_X,
@@ -159,13 +204,6 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         // ==========================================
         // DATA VISUALIZATION FRONTEND (AWS AMPLIFY)
         // ==========================================
-        const reportResource = api.root.addResource('report');
-        reportResource.addMethod('GET', new apigateway.LambdaIntegration(agentReporterLambda, {
-            proxy: true
-        }), {
-            authorizer: auth,
-            authorizationType: apigateway.AuthorizationType.COGNITO
-        });
 
         // POST /coach Route (With Native Response Streaming)
         const coachResource = api.root.addResource('coach');
@@ -415,23 +453,6 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 reason: 'Point-in-time recovery is not required for this sample application. In production, enable PITR for data protection.'
             }
         ], true);
-        NagSuppressions.addResourceSuppressions(agentReporterLambda, [
-            {
-                id: 'AwsSolutions-IAM4',
-                reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application.',
-                appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
-            },
-            {
-                id: 'AwsSolutions-IAM5',
-                reason: 'CDK grantRead auto-generates wildcards for S3 bucket actions and objects.',
-                appliesTo: [
-                    'Action::s3:GetBucket*',
-                    'Action::s3:GetObject*',
-                    'Action::s3:List*',
-                    'Resource::arn:aws:s3:::custom-memories-ai-coach-unity/*'
-                ]
-            }
-        ], true);
 
         NagSuppressions.addResourceSuppressions(agentInvokerLambda, [
             {
@@ -443,12 +464,15 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 id: 'AwsSolutions-IAM5',
                 reason: 'CDK grantReadWrite auto-generates wildcards for S3 bucket actions and objects.',
                 appliesTo: [
-                    'Action::s3:GetBucket*',
-                    'Action::s3:GetObject*',
-                    'Action::s3:List*',
-                    'Action::s3:Abort*',
-                    'Action::s3:DeleteObject*',
-                    'Resource::arn:aws:s3:::custom-memories-ai-coach-unity/*'
+                'bedrock-agentcore:InvokeHarness',
+                'bedrock-agentcore:CreateEvent',
+                'bedrock-agentcore:GetEvent',
+                'bedrock-agentcore:ListEvents',
+                'bedrock-agentcore:RetrieveMemoryRecords',
+                'bedrock-agentcore:CreateMemoryRecord',
+                'bedrock-agentcore:GetMemoryRecord',
+                'bedrock:*',
+                'Resources:[*]'
                 ]
             }
         ], true);
