@@ -47,7 +47,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 'Access-Control-Allow-Methods': '\'*\''
             }
         });
-// 1. Memory Resource
+        // 1. Memory Resource
         const memoryRole = new iam.Role(this, 'AgentCoreMemoryRole', {
             assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
         });
@@ -74,7 +74,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         });
         harnessRole.addToPolicy(new iam.PolicyStatement({
             actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
-            resources: ['*'], 
+            resources: ['*'],
         }));
 
         const cfnHarness = new bedrockagentcore.CfnHarness(this, 'AiCoachHarness', {
@@ -155,7 +155,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             timeout: cdk.Duration.seconds(600),
             environment: {
                 AGENT_MEMORY_ID: cfnMemory.attrMemoryId,
-                AGENT_HARNESS_ARN: cfnHarness.attrArn, 
+                AGENT_HARNESS_ARN: cfnHarness.attrArn,
             },
             logGroup: lambdaLogGroup,
         });
@@ -169,9 +169,9 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 'bedrock-agentcore:RetrieveMemoryRecords',
                 'bedrock-agentcore:CreateMemoryRecord',
                 'bedrock-agentcore:GetMemoryRecord',
-                'bedrock:*' 
+                'bedrock:*'
             ],
-            resources: ['*'], 
+            resources: ['*'],
         });
 
         agentInvokerLambda.addToRolePolicy(agentCorePolicy);
@@ -207,7 +207,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
 
         // POST /coach Route (With Native Response Streaming)
         const coachResource = api.root.addResource('coach');
-        
+
         const streamingIntegration = new apigateway.LambdaIntegration(agentInvokerLambda, {
             proxy: true,
             responseTransferMode: apigateway.ResponseTransferMode.STREAM,
@@ -248,19 +248,19 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             description: 'The live public link to your data visualization frontend dashboard',
         });
         const telemetryResource = api.root.addResource('items');
-            
+
         // 1. Protected POST /items
         telemetryResource.addMethod('POST', new apigateway.LambdaIntegration(protectedTelemetryLambda), {
             authorizer: auth,
             authorizationType: apigateway.AuthorizationType.COGNITO
         });
-        
+
         // 2. Protected GET /items (fetches all for the authenticated user)
         telemetryResource.addMethod('GET', new apigateway.LambdaIntegration(protectedTelemetryLambda), {
             authorizer: auth,
             authorizationType: apigateway.AuthorizationType.COGNITO
         });
-        
+
         // 3. Public GET /items/{id}
         const telemetryIdResource = telemetryResource.addResource('{id}');
         telemetryIdResource.addMethod('GET', new apigateway.LambdaIntegration(publicTelemetryLambda)); // No authorizer attached
@@ -454,8 +454,13 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             }
         ], true);
 
-    NagSuppressions.addResourceSuppressions(agentInvokerLambda, [
-            { id: 'AwsSolutions-IAM5', reason: 'AgentCore wildcards are required for accessing Memory and Harness resources dynamically.' }
+        NagSuppressions.addResourceSuppressions(agentInvokerLambda, [
+            { id: 'AwsSolutions-IAM5', reason: 'AgentCore wildcards are required for accessing Memory and Harness resources dynamically.' },
+            {
+                id: 'AwsSolutions-IAM4',
+                reason: 'Using AWS Lambda Basic Execution Role is acceptable for this sample application. In production, consider using custom IAM policies.',
+                appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
+            }
         ], true);
 
         NagSuppressions.addResourceSuppressions([memoryRole, harnessRole], [
