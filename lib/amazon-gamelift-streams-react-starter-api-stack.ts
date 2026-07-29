@@ -169,6 +169,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 'bedrock-agentcore:RetrieveMemoryRecords',
                 'bedrock-agentcore:CreateMemoryRecord',
                 'bedrock-agentcore:GetMemoryRecord',
+                'bedrock-agentcore:InvokeAgentRuntime',
                 'bedrock:*'
             ],
             resources: ['*'],
