@@ -76,6 +76,16 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
             actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
             resources: ['*'],
         }));
+        harnessRole.addToPolicy(new iam.PolicyStatement({
+            actions: [
+                'bedrock-agentcore:ListEvents',
+                'bedrock-agentcore:GetEvent',
+                'bedrock-agentcore:CreateEvent',
+                'bedrock-agentcore:RetrieveMemoryRecords',
+                'bedrock-agentcore:GetMemoryRecord'
+            ],
+            resources: ['*'], // Or scope to: cfnMemory.attrMemoryArn
+        }));
 
         const cfnHarness = new bedrockagentcore.CfnHarness(this, 'AiCoachHarness', {
             harnessName: 'AICoachAmplifyDataviz',
