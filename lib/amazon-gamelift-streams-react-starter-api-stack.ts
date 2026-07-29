@@ -57,7 +57,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         }));
 
         const cfnMemory = new bedrockagentcore.CfnMemory(this, 'AiCoachAgentMemory', {
-            name: 'ai_coach_user_memory',
+            name: 'ai_coach_user_memory_v2',
             description: 'Long-term user preferences, fitness goals, and conversational state memory',
             eventExpiryDuration: 30,
             memoryExecutionRoleArn: memoryRole.roleArn,
