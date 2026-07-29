@@ -162,14 +162,7 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
         const agentCorePolicy = new iam.PolicyStatement({
             effect: iam.Effect.ALLOW,
             actions: [
-                'bedrock-agentcore:InvokeHarness',
-                'bedrock-agentcore:CreateEvent',
-                'bedrock-agentcore:GetEvent',
-                'bedrock-agentcore:ListEvents',
-                'bedrock-agentcore:RetrieveMemoryRecords',
-                'bedrock-agentcore:CreateMemoryRecord',
-                'bedrock-agentcore:GetMemoryRecord',
-                'bedrock-agentcore:InvokeAgentRuntime',
+                'bedrock-agentcore:*',
                 'bedrock:*'
             ],
             resources: ['*'],
