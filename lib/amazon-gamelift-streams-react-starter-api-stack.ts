@@ -125,7 +125,8 @@ User needs a baseline running plan but hasn't provided current fitness levels.
 To establish a foundational plan, I need to know your current baseline. How many times per week do you currently run or walk?
 </response>
 <goal type="distance">10km per week</goal>
-<goal type="exercise">Run 3 days per week</goal>` }
+<goal type="exercise">Run 3 days per week</goal>
+<goal type="calories">1000 calories</goal>` }
             ],
             memory: {
                 agentCoreMemoryConfiguration: { arn: cfnMemory.attrMemoryArn }
