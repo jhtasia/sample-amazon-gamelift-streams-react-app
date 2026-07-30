@@ -157,7 +157,7 @@ To establish a foundational plan, I need to know your current baseline. How many
         });
         // Add this GSI to enable querying by user
         telemetryTable.addGlobalSecondaryIndex({
-            indexName: 'userId-index',
+            indexName: 'userId-index-v2',
             partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
             projectionType: dynamodb.ProjectionType.INCLUDE,
             nonKeyAttributes: ['id', 'Metadata'],
@@ -171,7 +171,7 @@ To establish a foundational plan, I need to know your current baseline. How many
             handler: 'ProtectedData.handler',
             environment: {
                 TABLE_NAME: telemetryTable.tableName,
-                INDEX_NAME: 'userId-index', // Pass the GSI name for querying
+                INDEX_NAME: 'userId-index-v2', // Pass the GSI name for querying
             },
             logGroup: lambdaLogGroup,
             timeout: cdk.Duration.seconds(29),
