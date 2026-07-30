@@ -171,6 +171,7 @@ To establish a foundational plan, I need to know your current baseline. How many
                 INDEX_NAME: 'userId-index', // Pass the GSI name for querying
             },
             logGroup: lambdaLogGroup,
+            timeout: cdk.Duration.seconds(29), 
         });
         telemetryTable.grantReadWriteData(protectedTelemetryLambda);
 
