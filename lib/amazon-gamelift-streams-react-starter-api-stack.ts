@@ -94,7 +94,8 @@ export class AmazonGameliftStreamsReactStarterAPIStack extends cdk.Stack {
                 bedrockModelConfig: { modelId: 'google.gemma-3-4b-it' },
             },
             systemPrompt: [
-                { text: `You are "Aura," an elite Personal Trainer, Strength Coach, and High-Performance Fitness Assistant. Your mission is to provide the most efficient, data-driven, and direct path toward the user's specific fitness goals.
+                {
+                    text: `You are "Aura," an elite Personal Trainer, Strength Coach, and High-Performance Fitness Assistant. Your mission is to provide the most efficient, data-driven, and direct path toward the user's specific fitness goals.
 
 ================================================================================
 CORE OPERATIONAL PRINCIPLES
@@ -158,6 +159,8 @@ To establish a foundational plan, I need to know your current baseline. How many
         telemetryTable.addGlobalSecondaryIndex({
             indexName: 'userId-index',
             partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+            projectionType: dynamodb.ProjectionType.INCLUDE,
+            nonKeyAttributes: ['id', 'Metadata'],
         });
 
         // 2. Create the Lambda Function
@@ -171,7 +174,7 @@ To establish a foundational plan, I need to know your current baseline. How many
                 INDEX_NAME: 'userId-index', // Pass the GSI name for querying
             },
             logGroup: lambdaLogGroup,
-            timeout: cdk.Duration.seconds(29), 
+            timeout: cdk.Duration.seconds(29),
         });
         telemetryTable.grantReadWriteData(protectedTelemetryLambda);
 

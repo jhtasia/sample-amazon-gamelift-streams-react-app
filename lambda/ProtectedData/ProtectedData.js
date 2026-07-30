@@ -32,16 +32,18 @@ exports.handler = async (event, context) => {
     const method = event.requestContext?.http?.method || event.httpMethod;
 
     // ==========================================
-    // GET METHOD: FETCH ALL DATA FOR USER
+    // GET METHOD: FETCH METADATA LIST FOR USER
     // ==========================================
     if (method === 'GET') {
         try {
-            console.info(`Fetching all sessions for user '${userId}' from table '${tableName}' using index '${indexName}'...`);
+            console.info(`Fetching session metadata for user '${userId}' from index '${indexName}'...`);
             
             const command = new QueryCommand({
                 TableName: tableName,
                 IndexName: indexName,
                 KeyConditionExpression: "userId = :uid",
+                // Explicitly request ONLY these projected attributes from the index
+                ProjectionExpression: "userId, id, Metadata",
                 ExpressionAttributeValues: {
                     ":uid": userId
                 }
@@ -49,8 +51,10 @@ exports.handler = async (event, context) => {
 
             const response = await docClient.send(command);
 
-            console.info(`Successfully retrieved ${response.Items.length} sessions for user: ${userId}`);
-            return buildResponse(200, response.Items);
+            console.info(`Successfully retrieved ${response.Items?.length || 0} session header(s) for user: ${userId}`);
+            
+            // Returns array containing only [{ userId, id, Metadata }, ...]
+            return buildResponse(200, response.Items || []);
 
         } catch (error) {
             console.error(`AWS DynamoDB Error during GET [${error.name}]: ${error.message}`);
