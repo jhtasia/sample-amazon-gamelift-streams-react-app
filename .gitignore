@@ -8,3 +8,8 @@ cdk.out
 
 # macOS system files
 .DS_Store
+
+# generated from TS files
+bin/*.js
+lib/*.js
+test/*.js

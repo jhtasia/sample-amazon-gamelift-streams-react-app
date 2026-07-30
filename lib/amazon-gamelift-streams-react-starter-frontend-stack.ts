@@ -11,10 +11,15 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import { SecurityPolicyProtocol, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 
 export class AmazonGameliftStreamsReactStarterFrontendStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
+
+        // --- SSO Portal config ---
+        // Use the already-deployed Lambda@Edge from jht-office-portal (passwordless-magic-link-dev)
+        const EDGE_AUTH_FUNCTION_ARN = 'arn:aws:lambda:us-east-1:478946426939:function:JhtOfficePortalStack-dev-EdgeAuthFunction41B9AFA0-Hya5pveeB4HU:30';
 
         const websiteBucket = new s3.Bucket(this, 'amazon-gamelift-streams-react-starter-frontend-WebsiteBucket', {
             removalPolicy: RemovalPolicy.DESTROY,
@@ -26,27 +31,38 @@ export class AmazonGameliftStreamsReactStarterFrontendStack extends cdk.Stack {
 
         const acl = this.createWebACL();
 
+        // Reference the existing Lambda@Edge version
+        const edgeAuthVersion = lambda.Version.fromVersionArn(
+            this, 'EdgeAuthVersion', EDGE_AUTH_FUNCTION_ARN
+        );
+
         const distribution = new cloudfront.Distribution(this, 'amazon-gamelift-streams-react-starter-frontend-distribution', {
             comment: 'GameLift-Streams Demo Distribution',
             defaultBehavior: {
                 origin: origins.S3BucketOrigin.withOriginAccessControl(websiteBucket),
-                viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY
+                viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
+                edgeLambdas: [
+                    {
+                        functionVersion: edgeAuthVersion,
+                        eventType: cloudfront.LambdaEdgeEventType.VIEWER_REQUEST,
+                    },
+                ],
+                cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
             },
             defaultRootObject: 'index.html',
+            errorResponses: [
+                { httpStatus: 403, responsePagePath: '/index.html', responseHttpStatus: 200 },
+                { httpStatus: 404, responsePagePath: '/index.html', responseHttpStatus: 200 },
+            ],
             minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_2_2021,
             enableLogging: true,
             webAclId: acl.attrArn,
             geoRestriction: cloudfront.GeoRestriction.allowlist(
-                // North America
                 'US', 'CA', 'MX',
-                // Europe
-                'GB', 'DE', 'FR', 'IT', 'ES', 'NL', 
+                'GB', 'DE', 'FR', 'IT', 'ES', 'NL',
                 'SE', 'NO', 'DK', 'FI', 'IE',
-                // Asia Pacific
-                'JP', 'KR', 'SG', 'AU', 'NZ', 'IN',
-                // South America
+                'JP', 'KR', 'SG', 'AU', 'NZ', 'IN', 'TW',
                 'BR', 'AR',
-                // Middle East
                 'AE', 'SA'
             ),
         });

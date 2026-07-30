@@ -46,6 +46,11 @@ const NavBar: React.FC<NavBarProps> = ({ user, signOut }) => {
                 marginLeft: '20px'
             }}>
                 {user && (
+                    <span style={{ color: '#ccc', marginRight: '12px', fontSize: '14px' }}>
+                        {user.email}
+                    </span>
+                )}
+                {user && (
                     <button onClick={signOut}>
                         Sign Out
                     </button>

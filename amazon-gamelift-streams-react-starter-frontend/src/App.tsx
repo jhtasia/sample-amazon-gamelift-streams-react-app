@@ -1,36 +1,47 @@
 import StreamComponent from './StreamComponent';
-import '@aws-amplify/ui-react/styles.css';
-import { Amplify } from 'aws-amplify';
-import { Authenticator } from '@aws-amplify/ui-react';
+import { AuthProvider, useAuth } from './auth/AuthContext';
 
-Amplify.configure({
-    Auth: {
-        Cognito: {
-            // example: 'us-west-2_CmhpQV4GR'
-            userPoolId: '<CHANGE-ME>',
-            // example: '5b9h9bmmmva3ig1trmq5n90orm'
-            userPoolClientId: '<CHANGE-ME>'
-        }
-    },
-    API: {
-        REST: {
-            'demo-api': {
-                // example: 'https://2ki03xizx7.execute-api.us-west-2.amazonaws.com/prod'
-                // ensure the endpoint has no trailing slash '/' at the end
-                endpoint: '<CHANGE-ME>'
-            }
-        }
+const AUTH_CONFIG = {
+    apiEndpoint: 'https://cjhwuepln2.execute-api.ap-northeast-1.amazonaws.com/prod'
+};
+
+function AppContent() {
+    const { user, isLoading, signOut } = useAuth();
+
+    if (isLoading) {
+        return <div style={{ color: 'white', textAlign: 'center', marginTop: '100px' }}>驗證中...</div>;
     }
-});
 
+    if (!user) {
+        // No valid sso_token_readable cookie found.
+        // This means either:
+        // 1. SSO flow hasn't completed (CloudFront domain not in allowedOrigins)
+        // 2. Cookie expired mid-session
+        // 3. Lambda@Edge version doesn't set sso_token_readable
+        return (
+            <div style={{ color: 'white', textAlign: 'center', marginTop: '100px', padding: '20px' }}>
+                <p>無法讀取登入資訊。</p>
+                <p style={{ fontSize: '14px', color: '#888', marginTop: '10px' }}>
+                    請確認此 CloudFront domain 已加入 SSO Portal 的 allowedOrigins。
+                </p>
+                <button
+                    onClick={() => window.location.reload()}
+                    style={{ marginTop: '20px', padding: '10px 20px', cursor: 'pointer' }}
+                >
+                    重新整理
+                </button>
+            </div>
+        );
+    }
+
+    return <StreamComponent signOut={signOut} user={user} />;
+}
 
 function App() {
     return (
-        <Authenticator hideSignUp={true} loginMechanisms={['email']}>
-            {({ signOut, user }) => (
-                <StreamComponent signOut={signOut} user={user}></StreamComponent>
-            )}
-        </Authenticator>
+        <AuthProvider config={AUTH_CONFIG}>
+            <AppContent />
+        </AuthProvider>
     );
 }
 

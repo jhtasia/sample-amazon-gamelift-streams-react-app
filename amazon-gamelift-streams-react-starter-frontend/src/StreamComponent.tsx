@@ -3,11 +3,10 @@
 
 import React from 'react';
 import './StreamComponent.css';
-import * as gameliftstreamssdk from './gamelift-streams-websdk/gameliftstreams-1.1.0';
-import { ApiError, get, post } from 'aws-amplify/api';
-import { fetchAuthSession } from 'aws-amplify/auth';
+import * as gameliftstreamssdk from './gamelift-streams-websdk/gameliftstreams-1.2.0';
 import NavBar from './NavBar';
 import StatsOverlay, { StatsOverlayRef } from './StatsOverlay';
+import { AuthContext } from './auth/AuthContext';
 
 interface StreamComponentProps {
     signOut: any;
@@ -31,25 +30,36 @@ interface StreamComponentState {
     inputEnabled: boolean;
     isStreamStarting: boolean;
     perfStats: any;
+    micEnabled: boolean;
+    speed: string;
+    heartRate: string;
+    calories: string;
+    pipEnabled: boolean;
 }
 
 class StreamComponent extends React.Component<StreamComponentProps, StreamComponentState> {
     gameliftstreams?: gameliftstreamssdk.GameLiftStreams;
     private statsOverlayRef = React.createRef<StatsOverlayRef>();
+    private micStatsInterval?: ReturnType<typeof setInterval>;
 
     constructor(props: StreamComponentProps) {
         super(props);
 
         this.state = {
             status: StreamState.STOPPED,
-            sgId: '',
-            appId: '',
+            sgId: 'sg-L8nff73L7',
+            appId: 'a-GbN0XkXPi',
             sessionId: '',
             lastSessionId: '',
             regions: ['us-west-2'], // Must be supported Amazon GameLift Streams primary region (https://docs.aws.amazon.com/gameliftstreams/latest/developerguide/regions-quotas-rande.html)
             inputEnabled: false,
             isStreamStarting: false,
-            perfStats: {}
+            perfStats: {},
+            micEnabled: false,
+            speed: '0',
+            heartRate: '0',
+            calories: '0',
+            pipEnabled: false
         };
 
         // Adding Stats to frontend
@@ -101,6 +111,44 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
         this.setState({ perfStats });
     }
 
+    // --- Treadmill Data Channel ---
+    private static textEncoder = new TextEncoder();
+
+    private sendTreadmillMessage(message: string) {
+        if (!this.gameliftstreams || !this.gameliftstreams.sendApplicationMessage(StreamComponent.textEncoder.encode(message))) {
+            console.error('[Treadmill] Message failed to send.');
+        }
+    }
+
+    private handleTreadmillChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = event.target;
+        this.setState((prevState) => {
+            const newState = { ...prevState, [name]: value };
+            const speed = name === 'speed' ? value : prevState.speed;
+            const heartRate = name === 'heartRate' ? value : prevState.heartRate;
+            const calories = name === 'calories' ? value : prevState.calories;
+
+            if (name === 'speed') {
+                const speedKmh = parseFloat(speed) || 0;
+                const gameSpeed = Math.max(1, Math.min(15, speedKmh * 0.75));
+                this.sendTreadmillMessage(JSON.stringify({ action: 'setSpeed', speed: gameSpeed }));
+            } else {
+                this.sendTreadmillMessage(JSON.stringify({
+                    action: 'updateStats',
+                    heartRate: parseFloat(heartRate) || 0,
+                    calories: parseFloat(calories) || 0
+                }));
+            }
+            return newState;
+        });
+    };
+
+    private handlePipToggle = () => {
+        const newPipState = !this.state.pipEnabled;
+        this.setState({ pipEnabled: newPipState });
+        this.sendTreadmillMessage(JSON.stringify({ action: 'setPiP', active: newPipState }));
+    };
+
     private toggleStats = () => {
         this.statsOverlayRef.current?.toggleStats();
     };
@@ -110,18 +158,8 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
      */
     private handleError(e: any) {
         console.log(e);
-        if (e instanceof ApiError) {
-            if (e.response) {
-                const { statusCode, body } = e.response;
-                const data = JSON.parse(body ?? '');
-                this.setState({ isStreamStarting: false });
-                console.error(`Received ${statusCode} error response with payload: ${body}`);
-                alert(`Error: ${statusCode} - ${data.message || 'Unknown error'}. Check console for details.`);
-            }
-        } else {
-            this.setState({ isStreamStarting: false });
-            alert(`Error: ${e.message || 'Unknown error'}. Check console for details.`);
-        }
+        this.setState({ isStreamStarting: false });
+        alert(`Error: ${e.message || 'Unknown error'}. Check console for details.`);
     }
 
     /**
@@ -133,11 +171,64 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
         alert('Error: Stream session creation timed out. Check console for details.');
     }
 
+    static contextType = AuthContext;
+    context!: React.ContextType<typeof AuthContext>;
+
+    private getApiEndpoint(): string {
+        return this.context?.config.apiEndpoint ?? '';
+    }
+
+    private getIdToken(): string {
+        return this.context?.idToken ?? '';
+    }
+
+    private async apiPost(path: string, body: any): Promise<any> {
+        const resp = await fetch(`${this.getApiEndpoint()}${path}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${this.getIdToken()}`,
+            },
+            body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(`${resp.status} - ${errData.message || 'Unknown error'}`);
+        }
+        return resp.json();
+    }
+
+    private async apiGet(path: string): Promise<any> {
+        const resp = await fetch(`${this.getApiEndpoint()}${path}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${this.getIdToken()}`,
+            },
+        });
+        if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(`${resp.status} - ${errData.message || 'Unknown error'}`);
+        }
+        return resp.json();
+    }
+
     /**
      * Creates a new stream session using StartStream Lambda and then waits for it to be ready using @waitForACTIVE
      */
     private async createStreamSession() {
         this.setState({ isStreamStarting: true });
+        if (this.state.micEnabled) {
+            try {
+                await this.gameliftstreams!.enableMicrophone();
+                console.log('[Mic] Microphone enabled successfully');
+            } catch (e) {
+                console.error('[Mic] Failed to enable microphone:', e);
+                alert('Failed to enable microphone. Please check browser permissions.');
+                this.setState({ isStreamStarting: false });
+                return;
+            }
+        }
         const signalRequest = await this.gameliftstreams?.generateSignalRequest();
         const payload = {
             AppIdentifier: this.state.appId,
@@ -147,19 +238,7 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
         };
 
         try {
-            const restOperation = post({
-                apiName: 'demo-api',
-                path: '/',
-                options: {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${(await fetchAuthSession()).tokens?.idToken?.toString()}`
-                    },
-                    body: payload
-                }
-            });
-            const { body } = await restOperation.response;
-            const data = JSON.parse(await body.text());
+            const data = await this.apiPost('/', payload);
             await this.waitForACTIVE(data.arn, this.state.sgId);
         } catch (e) {
             this.handleError(e);
@@ -167,31 +246,29 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
     }
 
     /**
-     * Creates a new stream session using StartStream Lambda and then waits for it to be ready using @waitForACTIVE
+     * Creates a new stream session connection for reconnection
      */
     private async createStreamSessionConnection() {
         this.setState({ isStreamStarting: true });
+        if (this.state.micEnabled) {
+            try {
+                await this.gameliftstreams!.enableMicrophone();
+                console.log('[Mic] Microphone enabled successfully');
+            } catch (e) {
+                console.error('[Mic] Failed to enable microphone:', e);
+                alert('Failed to enable microphone. Please check browser permissions.');
+                this.setState({ isStreamStarting: false });
+                return;
+            }
+        }
         const signalRequest = await this.gameliftstreams?.generateSignalRequest();
         const payload = {
             SessionIdentifier: this.state.sessionId,
             SignalRequest: signalRequest ?? '',
         };
-        console.log(payload);
 
         try {
-            const restOperation = post({
-                apiName: 'demo-api',
-                path: '/reconnect',
-                options: {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${(await fetchAuthSession()).tokens?.idToken?.toString()}`
-                    },
-                    body: payload
-                }
-            });
-            const { body } = await restOperation.response;
-            const data = JSON.parse(await body.text());
+            const data = await this.apiPost('/reconnect', payload);
             await this.startStream(data.signalResponse);
         } catch (e) {
             this.handleError(e);
@@ -205,31 +282,19 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
      */
     async waitForACTIVE(arn: string, sg: string, timeoutMs: number = 600000) {
         const startTime = Date.now();
-        while (Date.now() - startTime < timeoutMs) { // while not timedout
+        while (Date.now() - startTime < timeoutMs) {
             console.log(`Waiting for stream session: ${arn}`);
             try {
-                const restOperation = get({
-                    apiName: 'demo-api',
-                    path: `/session/${encodeURIComponent(sg)}/${encodeURIComponent(arn)}`,
-                    options: {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            Authorization: `Bearer ${(await fetchAuthSession()).tokens?.idToken?.toString()}`
-                        }
-                    }
-                });
-                const { body } = await restOperation.response;
-                const data = JSON.parse(await body.text());
+                const data = await this.apiGet(`/session/${encodeURIComponent(sg)}/${encodeURIComponent(arn)}`);
 
-                if (data.status === 'ACTIVE') { // the session is ACTIVE and we can connect
+                if (data.status === 'ACTIVE') {
                     await this.startStream(data.signalResponse);
                     this.setState((prevState) => ({
                         ...prevState,
                         lastSessionId: arn
                     }));
-                    return; // session is started, state is set for it so we can return
+                    return;
                 }
-                // else we wait for 1s and loop again
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (e) {
                 this.handleError(e);
@@ -237,7 +302,6 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
                 return;
             }
         }
-        // timed out
         this.handleTimeout(arn);
         this.setState({ isStreamStarting: false });
     }
@@ -250,12 +314,31 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
             status: StreamState.RUNNING,
             isStreamStarting: false,
         }));
+
+        if (this.state.micEnabled) {
+            this.micStatsInterval = setInterval(async () => {
+                try {
+                    const stats = await this.gameliftstreams?.getMicrophoneRTCStats();
+                    stats?.forEach((report: any) => {
+                        if (report.type === 'outbound-rtp' && report.kind === 'audio') {
+                            console.log(`[Mic Stats] bytesSent=${report.bytesSent}, packetsSent=${report.packetsSent}`);
+                        }
+                    });
+                } catch (e) {
+                    console.error('[Mic Stats] Error:', e);
+                }
+            }, 3000);
+        }
     }
 
     /**
      * Closes the connection and creates a new Amazon GameLift Streams Object as it can't be reused.
      */
     private closeConnection() {
+        if (this.micStatsInterval) {
+            clearInterval(this.micStatsInterval);
+            this.micStatsInterval = undefined;
+        }
         this.setState({status: StreamState.STOPPED, inputEnabled: false});
         this.gameliftstreams?.close();
         this.resetGameLiftStreamsSDK();
@@ -314,10 +397,10 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
                     flexWrap: 'wrap'
                 }}>
                     <div>
-                        Stream Group ID: <input type="text" name="sgId" onChange={this.handleInputChange}></input>
+                        Stream Group ID: <input type="text" name="sgId" onChange={this.handleInputChange} value={this.state.sgId}></input>
                     </div>
                     <div>
-                        Application ID: <input type="text" name="appId" onChange={this.handleInputChange}></input>
+                        Application ID: <input type="text" name="appId" onChange={this.handleInputChange} value={this.state.appId}></input>
                     </div>
                     <div>
                         Region: <select onChange={this.handleRegionChange} value={this.state.regions[0]}>
@@ -329,7 +412,16 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
                             <option value="us-west-2">us-west-2 (Oregon)</option>
                         </select>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input
+                                type="checkbox"
+                                checked={this.state.micEnabled}
+                                onChange={(e) => this.setState({ micEnabled: e.target.checked })}
+                                disabled={this.state.status === StreamState.RUNNING}
+                            />
+                            🎤 Mic
+                        </label>
                         <button
                             onClick={this.state.status !== StreamState.RUNNING ? this.createStreamSession : this.closeConnection}>
                             {this.state.status !== StreamState.RUNNING ? 'Start Stream' : 'End Stream'}
@@ -374,6 +466,39 @@ class StreamComponent extends React.Component<StreamComponentProps, StreamCompon
                         </div>
                     }
                 </div>
+
+                {/* Treadmill Data Channel Controls */}
+                {this.state.status === StreamState.RUNNING && (
+                    <div style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '20px',
+                        padding: '0 20px',
+                        marginTop: '10px',
+                        flexWrap: 'wrap'
+                    }}>
+                        <div>
+                            🏃 Speed (km/h): <input type="number" name="speed" value={this.state.speed} onChange={this.handleTreadmillChange} style={{ width: '80px' }} />
+                        </div>
+                        <div>
+                            ❤️ Heart Rate: <input type="number" name="heartRate" value={this.state.heartRate} onChange={this.handleTreadmillChange} style={{ width: '80px' }} />
+                        </div>
+                        <div>
+                            🔥 Calories: <input type="number" name="calories" value={this.state.calories} onChange={this.handleTreadmillChange} style={{ width: '80px' }} />
+                        </div>
+                        <div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={this.state.pipEnabled}
+                                    onChange={this.handlePipToggle}
+                                />
+                                🖼️ Picture in Picture
+                            </label>
+                        </div>
+                    </div>
+                )}
 
                 {/* Amazon GameLift Streams Video Element */}
                 <div style={{
