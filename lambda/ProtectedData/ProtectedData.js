@@ -32,29 +32,45 @@ exports.handler = async (event, context) => {
     const method = event.requestContext?.http?.method || event.httpMethod;
 
     // ==========================================
-    // GET METHOD: FETCH METADATA LIST FOR USER
+    // GET METHOD: FETCH UNIQUE METADATA LIST FOR USER
     // ==========================================
     if (method === 'GET') {
         try {
             console.info(`Fetching session metadata for user '${userId}' from index '${indexName}'...`);
             
-            const command = new QueryCommand({
-                TableName: tableName,
-                IndexName: indexName,
-                KeyConditionExpression: "userId = :uid",
-                // Explicitly request ONLY these projected attributes from the index
-                ProjectionExpression: "userId, id, Metadata",
-                ExpressionAttributeValues: {
-                    ":uid": userId
+            let allItems = [];
+            let lastEvaluatedKey = null;
+
+            // 1. Fetch all items (including chunked records) across pagination
+            do {
+                const command = new QueryCommand({
+                    TableName: tableName,
+                    IndexName: indexName,
+                    KeyConditionExpression: "userId = :uid",
+                    ProjectionExpression: "userId, id, Metadata, chunkIndex, Timestamp",
+                    ExpressionAttributeValues: {
+                        ":uid": userId
+                    },
+                    ExclusiveStartKey: lastEvaluatedKey
+                });
+
+                const response = await docClient.send(command);
+
+                if (response.Items && response.Items.length > 0) {
+                    allItems.push(...response.Items);
                 }
-            });
 
-            const response = await docClient.send(command);
+                lastEvaluatedKey = response.LastEvaluatedKey;
+            } while (lastEvaluatedKey);
 
-            console.info(`Successfully retrieved ${response.Items?.length || 0} session header(s) for user: ${userId}`);
+            console.info(`Retrieved ${allItems.length} total chunk item(s) for user: ${userId}`);
             
-            // Returns array containing only [{ userId, id, Metadata }, ...]
-            return buildResponse(200, response.Items || []);
+            // 2. Deduplicate items by session 'id'
+            const uniqueSessions = getUniqueSessions(allItems);
+
+            console.info(`Deduplicated to ${uniqueSessions.length} unique session header(s).`);
+
+            return buildResponse(200, uniqueSessions);
 
         } catch (error) {
             console.error(`AWS DynamoDB Error during GET [${error.name}]: ${error.message}`);
@@ -84,7 +100,7 @@ exports.handler = async (event, context) => {
                 return buildResponse(400, { error: "'Records' field must be a valid JSON array." });
             }
 
-            // CRITICAL: Attach the Cognito User ID to the payload so the GSI can index it
+            // Attach Cognito User ID
             payload.userId = userId;
 
             console.info(`Attempting to write session ID '${payload.id}' for user '${userId}'...`);
@@ -113,6 +129,40 @@ exports.handler = async (event, context) => {
         return buildResponse(405, { error: `HTTP method '${method}' is not supported on this endpoint.` });
     }
 };
+
+/**
+ * Deduplicates raw DynamoDB items by session `id`.
+ * Prefers the primary item (chunkIndex === 0) or an item containing valid Metadata.
+ */
+function getUniqueSessions(items) {
+    const sessionMap = new Map();
+
+    for (const item of items) {
+        if (!item.id) continue;
+
+        const existingItem = sessionMap.get(item.id);
+
+        if (!existingItem) {
+            sessionMap.set(item.id, item);
+        } else {
+            // Priority 1: Prefer chunkIndex 0 (the primary metadata entry)
+            if (item.chunkIndex === 0 && existingItem.chunkIndex !== 0) {
+                sessionMap.set(item.id, item);
+            } 
+            // Priority 2: If existing item lacks Metadata, replace with an entry that has it
+            else if (!existingItem.Metadata && item.Metadata) {
+                sessionMap.set(item.id, item);
+            }
+        }
+    }
+
+    // Convert map values to array and clean up chunking-specific fields
+    return Array.from(sessionMap.values()).map(item => {
+        const cleanItem = { ...item };
+        delete cleanItem.chunkIndex; // Strip internal chunk index before returning
+        return cleanItem;
+    });
+}
 
 const buildResponse = (statusCode, bodyDict) => {
     return {
