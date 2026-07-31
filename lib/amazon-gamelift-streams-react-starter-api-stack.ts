@@ -151,7 +151,15 @@ To establish a foundational plan, I need to know your current baseline. How many
         // 1. Create the DynamoDB Table
         const telemetryTable = new dynamodb.Table(this, 'DataVisTelemetryTable', {
             // The partition key must match the 'id' field we used in the JavaScript code
-            partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
+            partitionKey: {
+                name: 'id',
+                type: dynamodb.AttributeType.STRING
+            },
+            // ADD A SORT KEY to allow multiple chunks under the same 'id'
+            sortKey: {
+                name: 'chunkIndex', // or 'sequence' / 'timestamp'
+                type: dynamodb.AttributeType.NUMBER
+            },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // Cost-effective serverless billing
             removalPolicy: cdk.RemovalPolicy.DESTROY, // Safe for dev: deletes table if stack is destroyed
         });
